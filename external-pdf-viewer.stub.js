@@ -10,7 +10,7 @@
     });
   }
   const DefaultCdn = {
-    // Use pdf.js 2.x (stable) — 4.x has breaking changes and is not on cdnjs in older minor tags
+    // Use pdf.js 2.x (stable)
     pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js",
     pdfjsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js",
     pdflib: "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
@@ -208,27 +208,33 @@
     };
     state.ctx = state.refs.canvas.getContext('2d');
   }
+
   function bindCommon(state){
     const R=state.refs;
-    if(R.prev) R.prev.onclick=()=>{ if(state.page>1){ state.page--; renderPage(state);} };
-    if(R.next) R.next.onclick=()=>{ if(state.pdf && state.page<state.pdf.numPages){ state.page++; renderPage(state);} };
-    if(R.zin)  R.zin.onclick =()=>{ state.zoom=Math.min(state.zoom+0.2,6); renderPage(state); };
-    if(R.zout) R.zout.onclick=()=>{ state.zoom=Math.max(state.zoom-0.2,0.2); renderPage(state); };
-    if(R.fit)  R.fit.onclick =()=> renderPage(state,{fitWidth:true});
-    if(R.rot)  R.rot.onclick =()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); };
-    if(R.reload) R.reload.onclick=()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message));
-    if(R.find) R.find.onclick=()=>{ state.searchQuery=(R.q.value||'').trim(); renderPage(state); };
-    if(R.clear) R.clear.onclick=()=>{ state.searchQuery=''; if(R.q) R.q.value=''; renderPage(state); };
+    const on = (el, fn)=> el && el.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); fn(); });
+
+    on(R.prev, ()=>{ if(state.page>1){ state.page--; renderPage(state);} });
+    on(R.next, ()=>{ if(state.pdf && state.page<state.pdf.numPages){ state.page++; renderPage(state);} });
+    on(R.zin,  ()=>{ state.zoom=Math.min(state.zoom+0.2,6); renderPage(state); });
+    on(R.zout, ()=>{ state.zoom=Math.max(state.zoom-0.2,0.2); renderPage(state); });
+    on(R.fit,  ()=> renderPage(state,{fitWidth:true}));
+    on(R.rot,  ()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); });
+    on(R.reload, ()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message)));
+    on(R.find, ()=>{ state.searchQuery=(R.q?.value||'').trim(); renderPage(state); });
+    on(R.clear, ()=>{ state.searchQuery=''; if(R.q) R.q.value=''; renderPage(state); });
+
+    if (R.q) R.q.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); R.find?.click(); } });
   }
+
   const layouts = {
     simple(state){
       state.root.innerHTML = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button data-epv="prev">Prev</button><button data-epv="next">Next</button>
+          <button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button>
           <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button data-epv="zout">−</button><button data-epv="zin">＋</button>
-          <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
-          <button data-epv="reload">Reload</button>
+          <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
+          <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
+          <button type="button" data-epv="reload">Reload</button>
         </div>
         <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
           <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
@@ -242,15 +248,15 @@
           <aside style="width:180px;">
             <div style="padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
               <div>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></div>
-              <div style="margin-top:6px;display:flex;gap:6px;"><button data-epv="prev">Prev</button><button data-epv="next">Next</button></div>
-              <div style="margin-top:8px;"><button data-epv="reload">Reload</button></div>
+              <div style="margin-top:6px;display:flex;gap:6px;"><button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button></div>
+              <div style="margin-top:8px;"><button type="button" data-epv="reload">Reload</button></div>
             </div>
             <ul data-epv="thumbs" style="padding:0;margin:0;max-height:65vh;overflow:auto;"></ul>
           </aside>
           <main style="flex:1;min-width:0;">
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-              <button data-epv="zout">−</button><button data-epv="zin">＋</button>
-              <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
+              <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
+              <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
             </div>
             <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 80px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
               <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
@@ -263,13 +269,13 @@
     search(state){
       state.root.innerHTML = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button data-epv="prev">Prev</button><button data-epv="next">Next</button>
+          <button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button>
           <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button data-epv="zout">−</button><button data-epv="zin">＋</button>
-          <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
+          <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
+          <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
           <input data-epv="q" type="text" placeholder="Search on page" style="min-width:180px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;margin-left:auto;">
-          <button data-epv="find">Find</button><button data-epv="clear">Clear</button>
-          <button data-epv="reload">Reload</button>
+          <button type="button" data-epv="find">Find</button><button type="button" data-epv="clear">Clear</button>
+          <button type="button" data-epv="reload">Reload</button>
         </div>
         <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
           <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
