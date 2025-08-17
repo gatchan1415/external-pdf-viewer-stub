@@ -1,12 +1,25 @@
 (function (global) {
-  /* ========= ユーティリティ ========= */
-  function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.async=true;s.onload=res;s.onerror=()=>rej(new Error('Failed to load '+src));document.head.appendChild(s);});}
+  /* ========= Utilities ========= */
+  function loadScript(src){
+    return new Promise((res,rej)=>{
+      const s=document.createElement('script');
+      s.src=src; s.async=true;
+      s.onload=res;
+      s.onerror=()=>rej(new Error('Failed to load '+src));
+      document.head.appendChild(s);
+    });
+  }
   const DefaultCdn = {
-    pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.min.js",
-    pdfjsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.worker.min.js",
+    // Use pdf.js 2.x (stable) — 4.x has breaking changes and is not on cdnjs in older minor tags
+    pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js",
+    pdfjsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js",
     pdflib: "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
   };
-  let SDK_CFG = { pdfjsUrl: DefaultCdn.pdfjs, pdfjsWorkerUrl: DefaultCdn.pdfjsWorker, pdflibUrl: DefaultCdn.pdflib };
+  let SDK_CFG = { 
+    pdfjsUrl: DefaultCdn.pdfjs, 
+    pdfjsWorkerUrl: DefaultCdn.pdfjsWorker, 
+    pdflibUrl: DefaultCdn.pdflib 
+  };
   function setConfig(cfg){ SDK_CFG = {...SDK_CFG, ...(cfg||{})}; }
   async function ensurePdfJs(){
     if(global.pdfjsLib) return;
@@ -19,8 +32,7 @@
   }
   const el = (h)=>{const d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;};
 
-  /* ========= ダミーPDFコンテンツ生成（pdf-lib使用） ========= */
-    /* ========= Dummy PDF content generators (using pdf-lib) ========= */
+  /* ========= Dummy PDF content generators (using pdf-lib) ========= */
   const contentGenerators = {
     async sampleA(params){
       const { title="Sample A", subtitle="Overview", footer="" } = params||{};
@@ -55,7 +67,6 @@
       p3.drawText("Page 3: Extra notes",{x:60,y:780,size:16,font,color:PDFLib.rgb(0.1,0.1,0.3)});
       p3.drawText("Additional page for testing three-page structure.",{x:60,y:740,size:12,font:font2});
 
-      // Footer
       if(footer){[p1,p2,p3].forEach(pg=>{const {width}=pg.getSize();pg.drawText(footer,{x:60,y:30,size:10,font:font2,color:PDFLib.rgb(0.4,0.4,0.4)});pg.drawLine({start:{x:60,y:48},end:{x:width-60,y:48},thickness:.7,color:PDFLib.rgb(0.85,0.85,0.85)});});}
 
       return new Uint8Array(await pdf.save());
@@ -126,8 +137,7 @@
     }
   };
 
-
-  /* ========= ビューワ描画（pdf.js使用） ========= */
+  /* ========= Viewer rendering (pdf.js) ========= */
   async function renderPage(state, opts){
     if(!state.pdf) return;
     if(state.renderTask){ state.renderTask.cancel(); state.renderTask=null; }
@@ -146,22 +156,13 @@
     try{ await state.renderTask.promise; }catch(e){ if(e?.name!=="RenderingCancelledException") throw e; }
     t.innerHTML='';
     if (state.textLayer){
-      const textContent = await state.pdf.getPage(state.page).then(p=>p.getTextContent());
-      pdfjsLib.renderTextLayer({ textContentSource:textContent, container:t, viewport:vp, textDivs:[] });
-      if (state.layout==='search' && state.searchQuery){
-        const q = state.searchQuery.toLowerCase();
-        (textContent.items||[]).forEach(it=>{
-          const s=(it.str||'').toLowerCase();
-          if(q && s.includes(q) && it.transform){
-            const [a,b,_,__,e,f]=it.transform, fontSize=Math.hypot(a,b);
-            const w=(it.width||(q.length*fontSize*.5))*state.zoom, h=fontSize*state.zoom;
-            const left=e*state.zoom, top=(vp.height-f*state.zoom)-h;
-            const hl=document.createElement('div');
-            hl.style.cssText=`position:absolute;left:${left}px;top:${top}px;width:${w}px;height:${h}px;background:rgba(255,230,0,.35);pointer-events:none;border-radius:2px;`;
-            t.appendChild(hl);
-          }
-        });
-      }
+      const textContent = await page.getTextContent();
+      pdfjsLib.renderTextLayer({
+        textContent,     // fixed key
+        container: t,
+        viewport: vp,
+        textDivs: []
+      });
     }
     if(state.refs.pageNum) state.refs.pageNum.textContent=String(state.page);
     if(state.refs.pageTotal) state.refs.pageTotal.textContent=String(state.pdf.numPages);
@@ -170,6 +171,7 @@
     if(state.layout==='thumbs' && state.refs.thumbs && !state._thumbsBuilt){ state._thumbsBuilt=true; buildThumbs(state).catch(console.error); }
     state.events.onPageChange && state.events.onPageChange(state.page, state.pdf.numPages);
   }
+
   async function buildThumbs(state){
     const ul=state.refs.thumbs; ul.innerHTML='';
     for(let i=1;i<=state.pdf.numPages;i++){
@@ -183,7 +185,7 @@
     }
   }
 
-  /* ========= レイアウト ========= */
+  /* ========= Layouts ========= */
   function collectRefs(state){
     const r=state.root;
     state.refs = {
@@ -214,7 +216,7 @@
     if(R.zout) R.zout.onclick=()=>{ state.zoom=Math.max(state.zoom-0.2,0.2); renderPage(state); };
     if(R.fit)  R.fit.onclick =()=> renderPage(state,{fitWidth:true});
     if(R.rot)  R.rot.onclick =()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); };
-    if(R.reload) R.reload.onclick=()=> state.reloadContent().catch(e=>alert('再生成失敗: '+e.message));
+    if(R.reload) R.reload.onclick=()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message));
     if(R.find) R.find.onclick=()=>{ state.searchQuery=(R.q.value||'').trim(); renderPage(state); };
     if(R.clear) R.clear.onclick=()=>{ state.searchQuery=''; if(R.q) R.q.value=''; renderPage(state); };
   }
@@ -222,11 +224,11 @@
     simple(state){
       state.root.innerHTML = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button data-epv="prev">前へ</button><button data-epv="next">次へ</button>
-          <span>ページ: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button data-epv="zout">－</button><button data-epv="zin">＋</button>
-          <button data-epv="fit">幅にフィット</button><button data-epv="rot">回転</button>
-          <button data-epv="reload">コンテンツ再生成</button>
+          <button data-epv="prev">Prev</button><button data-epv="next">Next</button>
+          <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
+          <button data-epv="zout">−</button><button data-epv="zin">＋</button>
+          <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
+          <button data-epv="reload">Reload</button>
         </div>
         <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
           <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
@@ -239,16 +241,16 @@
         <div style="display:flex; gap:12px;">
           <aside style="width:180px;">
             <div style="padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-              <div>ページ: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></div>
-              <div style="margin-top:6px;display:flex;gap:6px;"><button data-epv="prev">前</button><button data-epv="next">次</button></div>
-              <div style="margin-top:8px;"><button data-epv="reload">再生成</button></div>
+              <div>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></div>
+              <div style="margin-top:6px;display:flex;gap:6px;"><button data-epv="prev">Prev</button><button data-epv="next">Next</button></div>
+              <div style="margin-top:8px;"><button data-epv="reload">Reload</button></div>
             </div>
             <ul data-epv="thumbs" style="padding:0;margin:0;max-height:65vh;overflow:auto;"></ul>
           </aside>
           <main style="flex:1;min-width:0;">
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-              <button data-epv="zout">－</button><button data-epv="zin">＋</button>
-              <button data-epv="fit">幅フィット</button><button data-epv="rot">回転</button>
+              <button data-epv="zout">−</button><button data-epv="zin">＋</button>
+              <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
             </div>
             <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 80px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
               <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
@@ -261,13 +263,13 @@
     search(state){
       state.root.innerHTML = `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button data-epv="prev">前へ</button><button data-epv="next">次へ</button>
-          <span>ページ: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button data-epv="zout">－</button><button data-epv="zin">＋</button>
-          <button data-epv="fit">幅にフィット</button><button data-epv="rot">回転</button>
-          <input data-epv="q" type="text" placeholder="検索（ページ内）" style="min-width:180px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;margin-left:auto;">
-          <button data-epv="find">検索</button><button data-epv="clear">解除</button>
-          <button data-epv="reload">再生成</button>
+          <button data-epv="prev">Prev</button><button data-epv="next">Next</button>
+          <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
+          <button data-epv="zout">−</button><button data-epv="zin">＋</button>
+          <button data-epv="fit">Fit Width</button><button data-epv="rot">Rotate</button>
+          <input data-epv="q" type="text" placeholder="Search on page" style="min-width:180px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;margin-left:auto;">
+          <button data-epv="find">Find</button><button data-epv="clear">Clear</button>
+          <button data-epv="reload">Reload</button>
         </div>
         <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
           <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
@@ -277,9 +279,9 @@
     }
   };
 
-  /* ========= 公開API ========= */
+  /* ========= Public API ========= */
   const ExternalPdfViewer = {
-    setConfig, // 例: ExternalPdfViewer.setConfig({ pdfjsUrl: "...", pdfjsWorkerUrl: "..." })
+    setConfig, // e.g. ExternalPdfViewer.setConfig({ pdfjsUrl: "...", pdfjsWorkerUrl: "..." })
     async mount(args){
       await ensurePdfJs(); await ensurePdfLib();
       const container = args.container; if(!container) throw new Error("container is required");
@@ -293,17 +295,17 @@
         contentParams: args.contentParams || {},
         refs: {}, ctx: null, pdf: null
       };
-      // レイアウト構築
+      // Build layout
       container.innerHTML = "";
       if(!layouts[state.layout]) throw new Error("unknown layout: "+state.layout);
       layouts[state.layout](state);
 
-      // コンテンツ生成→ロード→描画
+      // Generate → load → render
       state.reloadContent = async ()=>{
         const gen = contentGenerators[state.contentId];
         if(!gen) throw new Error("unknown contentId: "+state.contentId);
         const bytes = await gen(state.contentParams);
-        state.pdf && state.pdf.destroy && state.pdf.destroy();
+        if(state.pdf && state.pdf.destroy) try{ state.pdf.destroy(); }catch(_e){}
         state.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
         state.page = 1;
         await renderPage(state, { fitWidth: true });
@@ -328,11 +330,15 @@
           if(needReload) return state.reloadContent();
           if(needRerender) return renderPage(state,{fitWidth:true});
         },
-        destroy(){ try{ state.renderTask && state.renderTask.cancel(); state.pdf && state.pdf.destroy(); state.root.innerHTML=""; }catch(e){} }
+        destroy(){ 
+          try{ state.renderTask && state.renderTask.cancel(); }catch(_e){}
+          try{ state.pdf && state.pdf.destroy(); }catch(_e){}
+          state.root.innerHTML="";
+        }
       };
     }
   };
 
-  // UMD公開
+  // UMD export
   global.ExternalPdfViewer = ExternalPdfViewer;
 })(window);
