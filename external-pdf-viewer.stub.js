@@ -20,66 +20,112 @@
   const el = (h)=>{const d=document.createElement('div');d.innerHTML=h.trim();return d.firstChild;};
 
   /* ========= ダミーPDFコンテンツ生成（pdf-lib使用） ========= */
+    /* ========= Dummy PDF content generators (using pdf-lib) ========= */
   const contentGenerators = {
     async sampleA(params){
       const { title="Sample A", subtitle="Overview", footer="" } = params||{};
       const pdf = await PDFLib.PDFDocument.create();
-      const page = pdf.addPage([595.28, 841.89]);
-      const { width, height } = page.getSize();
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
-      page.drawText(title,{x:60,y:height-100,size:28,font,color:PDFLib.rgb(0.1,0.1,0.3)});
-      page.drawText(subtitle,{x:60,y:height-140,size:16,font:font2,color:PDFLib.rgb(0.2,0.2,0.2)});
-      page.drawLine({start:{x:60,y:height-150},end:{x:width-60,y:height-150},thickness:1,color:PDFLib.rgb(0.8,0.8,0.8)});
-      ["これはスタブ生成PDF。","contentId=sampleA で表示。","contentParamsで差し込み可。","実運用の前段でUI確認に使える。"]
-        .forEach((line,i)=>page.drawText("• "+line,{x:60,y:height-200-i*24,size:12,font:font2,color:PDFLib.rgb(0.15,0.15,0.15)}));
+
+      // Page 1
+      const p1 = pdf.addPage([595.28, 841.89]);
+      const { width, height } = p1.getSize();
+      p1.drawText(title,{x:60,y:height-100,size:28,font,color:PDFLib.rgb(0.1,0.1,0.3)});
+      p1.drawText(subtitle,{x:60,y:height-140,size:16,font:font2,color:PDFLib.rgb(0.2,0.2,0.2)});
+      p1.drawLine({start:{x:60,y:height-150},end:{x:width-60,y:height-150},thickness:1,color:PDFLib.rgb(0.8,0.8,0.8)});
+      [
+        "This is a stub-generated PDF.",
+        "Displayed with contentId=sampleA.",
+        "You can pass custom contentParams.",
+        "Useful for UI confirmation before production."
+      ].forEach((line,i)=>p1.drawText("• "+line,{x:60,y:height-200-i*24,size:12,font:font2,color:PDFLib.rgb(0.15,0.15,0.15)}));
+
+      // Page 2
       const p2 = pdf.addPage([595.28,841.89]);
-      p2.drawText("Page 2: 表っぽいもの",{x:60,y:780,size:16,font,color:PDFLib.rgb(0.1,0.1,0.3)});
-      const cols=["項目","値","メモ"], rows=[["A-1","123","dummy"],["B-2","456","dummy"],["C-3","789","dummy"]], X=[60,200,320];
+      p2.drawText("Page 2: Table-like content",{x:60,y:780,size:16,font,color:PDFLib.rgb(0.1,0.1,0.3)});
+      const cols=["Item","Value","Note"], rows=[["A-1","123","dummy"],["B-2","456","dummy"],["C-3","789","dummy"]], X=[60,200,320];
       p2.drawLine({start:{x:60,y:760},end:{x:535,y:760},thickness:1,color:PDFLib.rgb(0.8,0.8,0.8)});
       cols.forEach((c,i)=>p2.drawText(c,{x:X[i],y:740,size:12,font,color:PDFLib.rgb(0.2,0.2,0.2)}));
       p2.drawLine({start:{x:60,y:730},end:{x:535,y:730},thickness:1,color:PDFLib.rgb(0.8,0.8,0.8)});
       rows.forEach((r,ri)=>{const y=710-ri*22; r.forEach((cell,ci)=>p2.drawText(String(cell),{x:X[ci],y,size:11,font:font2}));});
-      if(footer){[page,p2].forEach(pg=>{const {width}=pg.getSize();pg.drawText(footer,{x:60,y:30,size:10,font:font2,color:PDFLib.rgb(0.4,0.4,0.4)});pg.drawLine({start:{x:60,y:48},end:{x:width-60,y:48},thickness:.7,color:PDFLib.rgb(0.85,0.85,0.85)});});}
+
+      // Page 3
+      const p3 = pdf.addPage([595.28,841.89]);
+      p3.drawText("Page 3: Extra notes",{x:60,y:780,size:16,font,color:PDFLib.rgb(0.1,0.1,0.3)});
+      p3.drawText("Additional page for testing three-page structure.",{x:60,y:740,size:12,font:font2});
+
+      // Footer
+      if(footer){[p1,p2,p3].forEach(pg=>{const {width}=pg.getSize();pg.drawText(footer,{x:60,y:30,size:10,font:font2,color:PDFLib.rgb(0.4,0.4,0.4)});pg.drawLine({start:{x:60,y:48},end:{x:width-60,y:48},thickness:.7,color:PDFLib.rgb(0.85,0.85,0.85)});});}
+
       return new Uint8Array(await pdf.save());
     },
+
     async sampleB(params){
-      const { title="Sample B（レポート）", subtitle="KPI Snapshot", footer="" } = params||{};
+      const { title="Sample B (Report)", subtitle="KPI Snapshot", footer="" } = params||{};
       const pdf = await PDFLib.PDFDocument.create();
-      const page = pdf.addPage([841.89, 595.28]);
-      const { width, height } = page.getSize();
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
-      page.drawText(title,{x:50,y:height-60,size:24,font,color:PDFLib.rgb(0.1,0.2,0.35)});
-      page.drawText(subtitle,{x:50,y:height-90,size:14,font:font2,color:PDFLib.rgb(0.2,0.2,0.2)});
-      const cards=[{label:"売上",value:"¥1,234,567"},{label:"新規ユーザー",value:"1,234"},{label:"継続率",value:"92%"},{label:"解約率",value:"1.5%"}];
-      cards.forEach((c,i)=>{const x=50+i*185,y=height-160;page.drawRectangle({x,y,width:170,height:90,color:PDFLib.rgb(0.95,0.97,1),borderColor:PDFLib.rgb(0.8,0.86,1),borderWidth:1});page.drawText(c.label,{x:x+12,y:y+60,size:12,font:font2,color:PDFLib.rgb(0.2,0.2,0.5)});page.drawText(c.value,{x:x+12,y:y+30,size:18,font,color:PDFLib.rgb(0.1,0.15,0.35)});});
+
+      // Page 1
+      const p1 = pdf.addPage([841.89, 595.28]);
+      const { width, height } = p1.getSize();
+      p1.drawText(title,{x:50,y:height-60,size:24,font,color:PDFLib.rgb(0.1,0.2,0.35)});
+      p1.drawText(subtitle,{x:50,y:height-90,size:14,font:font2,color:PDFLib.rgb(0.2,0.2,0.2)});
+      const cards=[{label:"Revenue",value:"$1,234,567"},{label:"New Users",value:"1,234"},{label:"Retention",value:"92%"},{label:"Churn",value:"1.5%"}];
+      cards.forEach((c,i)=>{const x=50+i*185,y=height-160;p1.drawRectangle({x,y,width:170,height:90,color:PDFLib.rgb(0.95,0.97,1),borderColor:PDFLib.rgb(0.8,0.86,1),borderWidth:1});p1.drawText(c.label,{x:x+12,y:y+60,size:12,font:font2,color:PDFLib.rgb(0.2,0.2,0.5)});p1.drawText(c.value,{x:x+12,y:y+30,size:18,font,color:PDFLib.rgb(0.1,0.15,0.35)});});
+
+      // Page 2
+      const p2 = pdf.addPage([841.89, 595.28]);
+      p2.drawText("Page 2: Monthly Metrics (Dummy Data)",{x:50,y:height-60,size:16,font});
       const baseX=80,baseY=260,w=40,g=30,vals=[3,5,2,6,4];
-      vals.forEach((v,i)=>page.drawRectangle({x:baseX+i*(w+g),y:baseY,width:w,height:v*30,color:PDFLib.rgb(0.2,0.5,0.9),opacity:.8}));
-      page.drawText("月次指標（疑似データ）",{x:50,y:320,size:12,font:font2,color:PDFLib.rgb(0.3,0.3,0.3)});
-      if(footer) page.drawText(footer,{x:50,y:20,size:10,font:font2,color:PDFLib.rgb(0.4,0.4,0.4)});
+      vals.forEach((v,i)=>p2.drawRectangle({x:baseX+i*(w+g),y:baseY,width:w,height:v*30,color:PDFLib.rgb(0.2,0.5,0.9),opacity:.8}));
+
+      // Page 3
+      const p3 = pdf.addPage([841.89, 595.28]);
+      p3.drawText("Page 3: Extra Report Notes",{x:50,y:height-60,size:16,font});
+      p3.drawText("This page is added to ensure sampleB has 3 pages.",{x:50,y:height-90,size:12,font:font2});
+
+      if(footer) [p1,p2,p3].forEach(pg=>pg.drawText(footer,{x:50,y:20,size:10,font:font2,color:PDFLib.rgb(0.4,0.4,0.4)}));
+
       return new Uint8Array(await pdf.save());
     },
+
     async sampleC(params){
-      const { title="Sample C（帳票）", subtitle="明細", footer="" } = params||{};
+      const { title="Sample C (Form)", subtitle="Details", footer="" } = params||{};
       const pdf = await PDFLib.PDFDocument.create();
-      const page = pdf.addPage([595.28, 841.89]);
-      const { width, height } = page.getSize();
       const f = await pdf.embedFont(PDFLib.StandardFonts.TimesRoman);
       const fb = await pdf.embedFont(PDFLib.StandardFonts.TimesRomanBold);
-      page.drawText(title,{x:60,y:height-80,size:22,font:fb});
-      page.drawText(subtitle,{x:60,y:height-110,size:14,font:f});
-      const cols=["品目","数量","単価","小計"], rows=[["りんご","10","¥120","¥1,200"],["バナナ","8","¥90","¥720"],["みかん","12","¥80","¥960"]], X=[60,260,340,420];
-      page.drawLine({start:{x:60,y:height-125},end:{x:width-60,y:height-125}});
-      cols.forEach((c,i)=>page.drawText(c,{x:X[i],y:height-145,size:12,font:fb}));
-      page.drawLine({start:{x:60,y:height-155},end:{x:width-60,y:height-155}});
-      rows.forEach((r,ri)=>{const y=height-175-ri*20; r.forEach((cell,ci)=>page.drawText(String(cell),{x:X[ci],y,size:12,font:f}));});
-      page.drawLine({start:{x:60,y:height-245},end:{x:width-60,y:height-245}});
-      page.drawText("合計：¥2,880",{x:width-180,y:height-265,size:14,font:fb});
-      if(footer) page.drawText(footer,{x:60,y:30,size:10,font:f});
+
+      // Page 1
+      const p1 = pdf.addPage([595.28, 841.89]);
+      const { width, height } = p1.getSize();
+      p1.drawText(title,{x:60,y:height-80,size:22,font:fb});
+      p1.drawText(subtitle,{x:60,y:height-110,size:14,font:f});
+      const cols=["Item","Qty","Unit Price","Subtotal"], rows=[["Apple","10","$1.20","$12.00"],["Banana","8","$0.90","$7.20"],["Orange","12","$0.80","$9.60"]], X=[60,260,340,420];
+      p1.drawLine({start:{x:60,y:height-125},end:{x:width-60,y:height-125}});
+      cols.forEach((c,i)=>p1.drawText(c,{x:X[i],y:height-145,size:12,font:fb}));
+      p1.drawLine({start:{x:60,y:height-155},end:{x:width-60,y:height-155}});
+      rows.forEach((r,ri)=>{const y=height-175-ri*20; r.forEach((cell,ci)=>p1.drawText(String(cell),{x:X[ci],y,size:12,font:f}));});
+      p1.drawLine({start:{x:60,y:height-245},end:{x:width-60,y:height-245}});
+      p1.drawText("Total: $28.80",{x:width-180,y:height-265,size:14,font:fb});
+
+      // Page 2
+      const p2 = pdf.addPage([595.28,841.89]);
+      p2.drawText("Page 2: Additional form section",{x:60,y:780,size:16,font:fb});
+      p2.drawText("This is the second page of sampleC.",{x:60,y:740,size:12,font:f});
+
+      // Page 3
+      const p3 = pdf.addPage([595.28,841.89]);
+      p3.drawText("Page 3: Appendix",{x:60,y:780,size:16,font:fb});
+      p3.drawText("This is the third page of sampleC.",{x:60,y:740,size:12,font:f});
+
+      if(footer) [p1,p2,p3].forEach(pg=>pg.drawText(footer,{x:60,y:30,size:10,font:f,color:PDFLib.rgb(0.4,0.4,0.4)}));
+
       return new Uint8Array(await pdf.save());
     }
   };
+
 
   /* ========= ビューワ描画（pdf.js使用） ========= */
   async function renderPage(state, opts){
