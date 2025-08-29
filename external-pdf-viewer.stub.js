@@ -1,3 +1,4 @@
+<script>
 (function (global) {
   /* ========= Utilities ========= */
   function loadScript(src){
@@ -148,22 +149,22 @@
       state.zoom *= ratio; vp = page.getViewport({ scale: state.zoom, rotation: state.rotation });
     }
     const dpr = global.devicePixelRatio || 1;
-    const c = state.refs.canvas, t = state.refs.textLayer;
+    const c = state.refs.canvas, stage = state.refs.stage;
     c.width = Math.floor(vp.width*dpr); c.height = Math.floor(vp.height*dpr);
     c.style.width = Math.floor(vp.width)+'px'; c.style.height = Math.floor(vp.height)+'px';
-    t.style.width = c.style.width; t.style.height = c.style.height;
+
+    // 舞台にcanvasと同じCSSサイズを与え、中央寄せはstageのmargin:autoに任せる
+    if (stage){
+      stage.style.width  = c.style.width;
+      stage.style.height = c.style.height;
+    }
+
     state.renderTask = page.render({ canvasContext: state.ctx, viewport: vp, transform:[dpr,0,0,dpr,0,0] });
     try{ await state.renderTask.promise; }catch(e){ if(e?.name!=="RenderingCancelledException") throw e; }
-    t.innerHTML='';
-    if (state.textLayer){
-      const textContent = await page.getTextContent();
-      pdfjsLib.renderTextLayer({
-        textContent,     // fixed key
-        container: t,
-        viewport: vp,
-        textDivs: []
-      });
-    }
+
+    // 拡大率表示を更新
+    if (state.refs.zdisp) state.refs.zdisp.textContent = `Zoom: ${(state.zoom*100).toFixed(0)}%`;
+
     if(state.refs.pageNum) state.refs.pageNum.textContent=String(state.page);
     if(state.refs.pageTotal) state.refs.pageTotal.textContent=String(state.pdf.numPages);
     if(state.refs.prev) state.refs.prev.disabled = (state.page<=1);
@@ -190,10 +191,12 @@
     const r=state.root;
     state.refs = {
       viewer: r.querySelector('[data-epv="viewer"]'),
+      stage: r.querySelector('[data-epv="stage"]'),
       canvas: r.querySelector('[data-epv="canvas"]'),
-      textLayer: r.querySelector('[data-epv="text"]'),
+      // textLayerは使わない（生成しない）
       pageNum: r.querySelector('[data-epv="pnum"]'),
       pageTotal: r.querySelector('[data-epv="ptotal"]'),
+      zdisp: r.querySelector('[data-epv="zdisp"]'),
       prev: r.querySelector('[data-epv="prev"]'),
       next: r.querySelector('[data-epv="next"]'),
       zin: r.querySelector('[data-epv="zin"]'),
@@ -202,9 +205,6 @@
       rot: r.querySelector('[data-epv="rot"]'),
       reload: r.querySelector('[data-epv="reload"]'),
       thumbs: r.querySelector('[data-epv="thumbs"]'),
-      q: r.querySelector('[data-epv="q"]'),
-      find: r.querySelector('[data-epv="find"]'),
-      clear: r.querySelector('[data-epv="clear"]')
     };
     state.ctx = state.refs.canvas.getContext('2d');
   }
@@ -220,26 +220,55 @@
     on(R.fit,  ()=> renderPage(state,{fitWidth:true}));
     on(R.rot,  ()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); });
     on(R.reload, ()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message)));
-    on(R.find, ()=>{ state.searchQuery=(R.q?.value||'').trim(); renderPage(state); });
-    on(R.clear, ()=>{ state.searchQuery=''; if(R.q) R.q.value=''; renderPage(state); });
 
-    if (R.q) R.q.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); R.find?.click(); } });
+    // ===== ピンチズーム対応 =====
+    // 1) ctrl+スクロール（多くの環境でトラックパッド/ピンチがこれになる）
+    R.viewer.addEventListener('wheel', (e)=>{
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const delta = -e.deltaY;
+        if (delta > 0) state.zoom = Math.min(state.zoom * 1.1, 6);
+        else           state.zoom = Math.max(state.zoom / 1.1, 0.2);
+        renderPage(state);
+      }
+    }, { passive:false });
+
+    // 2) iOS Safari 等の gesture イベント（非標準だが実機で便利）
+    let baseScale = null;
+    function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+    R.viewer.addEventListener('gesturestart', (e)=>{
+      baseScale = state.zoom;
+    });
+    R.viewer.addEventListener('gesturechange', (e)=>{
+      if (baseScale==null) return;
+      // e.scale: ピンチ量（1.0基準）
+      state.zoom = clamp(baseScale * e.scale, 0.2, 6);
+      renderPage(state);
+    });
+    R.viewer.addEventListener('gestureend', ()=>{ baseScale=null; });
   }
+
+  const toolbarHtml = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
+      <button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button>
+      <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
+      <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
+      <span data-epv="zdisp" style="min-width:80px;">Zoom: 100%</span>
+      <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
+      <button type="button" data-epv="reload">Reload</button>
+    </div>`;
+
+  const viewerShell = (h) => `
+    ${h}
+    <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;touch-action:none;">
+      <div data-epv="stage" style="position:relative;margin:0 auto;width:fit-content;">
+        <canvas data-epv="canvas" style="display:block;max-width:100%;"></canvas>
+      </div>
+    </div>`;
 
   const layouts = {
     simple(state){
-      state.root.innerHTML = `
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button>
-          <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
-          <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
-          <button type="button" data-epv="reload">Reload</button>
-        </div>
-        <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
-          <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
-          <div class="textLayer" data-epv="text" style="position:absolute;left:8px;top:8px;right:8px;bottom:8px;"></div>
-        </div>`;
+      state.root.innerHTML = viewerShell(toolbarHtml);
       collectRefs(state); bindCommon(state);
     },
     thumbs(state){
@@ -254,33 +283,20 @@
             <ul data-epv="thumbs" style="padding:0;margin:0;max-height:65vh;overflow:auto;"></ul>
           </aside>
           <main style="flex:1;min-width:0;">
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-              <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
-              <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
-            </div>
-            <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 80px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
-              <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
-              <div class="textLayer" data-epv="text" style="position:absolute;left:8px;top:8px;right:8px;bottom:8px;"></div>
-            </div>
+            ${viewerShell(`
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
+                <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
+                <span data-epv="zdisp" style="min-width:80px;">Zoom: 100%</span>
+                <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
+              </div>
+            `)}
           </main>
         </div>`;
       collectRefs(state); bindCommon(state);
     },
     search(state){
-      state.root.innerHTML = `
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
-          <button type="button" data-epv="prev">Prev</button><button type="button" data-epv="next">Next</button>
-          <span>Page: <span data-epv="pnum">-</span>/<span data-epv="ptotal">-</span></span>
-          <button type="button" data-epv="zout">−</button><button type="button" data-epv="zin">＋</button>
-          <button type="button" data-epv="fit">Fit Width</button><button type="button" data-epv="rot">Rotate</button>
-          <input data-epv="q" type="text" placeholder="Search on page" style="min-width:180px;padding:6px 8px;border:1px solid #ddd;border-radius:6px;margin-left:auto;">
-          <button type="button" data-epv="find">Find</button><button type="button" data-epv="clear">Clear</button>
-          <button type="button" data-epv="reload">Reload</button>
-        </div>
-        <div data-epv="viewer" style="position:relative;width:100%;height:calc(80vh - 56px);border:1px solid #eee;border-radius:10px;overflow:auto;padding:8px;">
-          <canvas data-epv="canvas" style="display:block;margin:0 auto;max-width:100%;"></canvas>
-          <div class="textLayer" data-epv="text" style="position:absolute;left:8px;top:8px;right:8px;bottom:8px;"></div>
-        </div>`;
+      // 検索UIは省略（PDFだけ見せたい前提）。simpleと同じ見た目にします。
+      state.root.innerHTML = viewerShell(toolbarHtml);
       collectRefs(state); bindCommon(state);
     }
   };
@@ -295,7 +311,7 @@
         root: container,
         layout: args.layout || "simple",
         page: 1, zoom: (args.options?.zoom ?? 1.1), rotation: (args.options?.rotation ?? 0),
-        textLayer: true, searchQuery: "",
+        // textLayerは使わない
         events: args.events||{},
         contentId: args.contentId || "sampleA",
         contentParams: args.contentParams || {},
@@ -348,3 +364,4 @@
   // UMD export
   global.ExternalPdfViewer = ExternalPdfViewer;
 })(window);
+</script>
