@@ -1,4 +1,3 @@
-<script>
 (function (global) {
   /* ========= Utilities ========= */
   function loadScript(src){
@@ -11,7 +10,7 @@
     });
   }
   const DefaultCdn = {
-    // Use pdf.js 2.x (stable)
+    // pdf.js 2.x（安定版）
     pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js",
     pdfjsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js",
     pdflib: "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
@@ -22,6 +21,7 @@
     pdflibUrl: DefaultCdn.pdflib 
   };
   function setConfig(cfg){ SDK_CFG = {...SDK_CFG, ...(cfg||{})}; }
+
   async function ensurePdfJs(){
     if(global.pdfjsLib) return;
     await loadScript(SDK_CFG.pdfjsUrl);
@@ -41,7 +41,7 @@
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
 
-      // Page 1
+      // Page 1 (A4 縦)
       const p1 = pdf.addPage([595.28, 841.89]);
       const { width, height } = p1.getSize();
       p1.drawText(title,{x:60,y:height-100,size:28,font,color:PDFLib.rgb(0.1,0.1,0.3)});
@@ -79,7 +79,7 @@
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
 
-      // Page 1
+      // Page 1 (A4 横)
       const p1 = pdf.addPage([841.89, 595.28]);
       const { width, height } = p1.getSize();
       p1.drawText(title,{x:50,y:height-60,size:24,font,color:PDFLib.rgb(0.1,0.2,0.35)});
@@ -153,7 +153,6 @@
     c.width = Math.floor(vp.width*dpr); c.height = Math.floor(vp.height*dpr);
     c.style.width = Math.floor(vp.width)+'px'; c.style.height = Math.floor(vp.height)+'px';
 
-    // 舞台にcanvasと同じCSSサイズを与え、中央寄せはstageのmargin:autoに任せる
     if (stage){
       stage.style.width  = c.style.width;
       stage.style.height = c.style.height;
@@ -162,7 +161,7 @@
     state.renderTask = page.render({ canvasContext: state.ctx, viewport: vp, transform:[dpr,0,0,dpr,0,0] });
     try{ await state.renderTask.promise; }catch(e){ if(e?.name!=="RenderingCancelledException") throw e; }
 
-    // 拡大率表示を更新
+    // Zoom表示更新
     if (state.refs.zdisp) state.refs.zdisp.textContent = `Zoom: ${(state.zoom*100).toFixed(0)}%`;
 
     if(state.refs.pageNum) state.refs.pageNum.textContent=String(state.page);
@@ -193,7 +192,6 @@
       viewer: r.querySelector('[data-epv="viewer"]'),
       stage: r.querySelector('[data-epv="stage"]'),
       canvas: r.querySelector('[data-epv="canvas"]'),
-      // textLayerは使わない（生成しない）
       pageNum: r.querySelector('[data-epv="pnum"]'),
       pageTotal: r.querySelector('[data-epv="ptotal"]'),
       zdisp: r.querySelector('[data-epv="zdisp"]'),
@@ -221,8 +219,7 @@
     on(R.rot,  ()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); });
     on(R.reload, ()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message)));
 
-    // ===== ピンチズーム対応 =====
-    // 1) ctrl+スクロール（多くの環境でトラックパッド/ピンチがこれになる）
+    // ===== ピンチズーム（ctrl+スクロール & iOS gesture） =====
     R.viewer.addEventListener('wheel', (e)=>{
       if (e.ctrlKey) {
         e.preventDefault();
@@ -233,15 +230,11 @@
       }
     }, { passive:false });
 
-    // 2) iOS Safari 等の gesture イベント（非標準だが実機で便利）
     let baseScale = null;
     function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-    R.viewer.addEventListener('gesturestart', (e)=>{
-      baseScale = state.zoom;
-    });
+    R.viewer.addEventListener('gesturestart', ()=>{ baseScale = state.zoom; });
     R.viewer.addEventListener('gesturechange', (e)=>{
       if (baseScale==null) return;
-      // e.scale: ピンチ量（1.0基準）
       state.zoom = clamp(baseScale * e.scale, 0.2, 6);
       renderPage(state);
     });
@@ -293,17 +286,12 @@
           </main>
         </div>`;
       collectRefs(state); bindCommon(state);
-    },
-    search(state){
-      // 検索UIは省略（PDFだけ見せたい前提）。simpleと同じ見た目にします。
-      state.root.innerHTML = viewerShell(toolbarHtml);
-      collectRefs(state); bindCommon(state);
     }
   };
 
   /* ========= Public API ========= */
   const ExternalPdfViewer = {
-    setConfig, // e.g. ExternalPdfViewer.setConfig({ pdfjsUrl: "...", pdfjsWorkerUrl: "..." })
+    setConfig, // ExternalPdfViewer.setConfig({ pdfjsUrl: "...", pdfjsWorkerUrl: "...", pdflibUrl: "..." })
     async mount(args){
       await ensurePdfJs(); await ensurePdfLib();
       const container = args.container; if(!container) throw new Error("container is required");
@@ -311,18 +299,15 @@
         root: container,
         layout: args.layout || "simple",
         page: 1, zoom: (args.options?.zoom ?? 1.1), rotation: (args.options?.rotation ?? 0),
-        // textLayerは使わない
         events: args.events||{},
         contentId: args.contentId || "sampleA",
         contentParams: args.contentParams || {},
         refs: {}, ctx: null, pdf: null
       };
-      // Build layout
       container.innerHTML = "";
       if(!layouts[state.layout]) throw new Error("unknown layout: "+state.layout);
       layouts[state.layout](state);
 
-      // Generate → load → render
       state.reloadContent = async ()=>{
         const gen = contentGenerators[state.contentId];
         if(!gen) throw new Error("unknown contentId: "+state.contentId);
@@ -364,4 +349,3 @@
   // UMD export
   global.ExternalPdfViewer = ExternalPdfViewer;
 })(window);
-</script>
