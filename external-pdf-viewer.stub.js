@@ -10,7 +10,6 @@
     });
   }
   const DefaultCdn = {
-    // pdf.js 2.x（安定版）
     pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js",
     pdfjsWorker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js",
     pdflib: "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
@@ -21,7 +20,6 @@
     pdflibUrl: DefaultCdn.pdflib 
   };
   function setConfig(cfg){ SDK_CFG = {...SDK_CFG, ...(cfg||{})}; }
-
   async function ensurePdfJs(){
     if(global.pdfjsLib) return;
     await loadScript(SDK_CFG.pdfjsUrl);
@@ -41,7 +39,7 @@
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
 
-      // Page 1 (A4 縦)
+      // Page 1
       const p1 = pdf.addPage([595.28, 841.89]);
       const { width, height } = p1.getSize();
       p1.drawText(title,{x:60,y:height-100,size:28,font,color:PDFLib.rgb(0.1,0.1,0.3)});
@@ -79,7 +77,7 @@
       const font = await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
       const font2 = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
 
-      // Page 1 (A4 横)
+      // Page 1 (landscape)
       const p1 = pdf.addPage([841.89, 595.28]);
       const { width, height } = p1.getSize();
       p1.drawText(title,{x:50,y:height-60,size:24,font,color:PDFLib.rgb(0.1,0.2,0.35)});
@@ -144,10 +142,12 @@
     if(state.renderTask){ state.renderTask.cancel(); state.renderTask=null; }
     const page = await state.pdf.getPage(state.page);
     let vp = page.getViewport({ scale: state.zoom, rotation: state.rotation });
+
     if (opts && opts.fitWidth && state.refs.viewer){
       const pad=16, target=state.refs.viewer.clientWidth-pad, ratio=target/vp.width;
       state.zoom *= ratio; vp = page.getViewport({ scale: state.zoom, rotation: state.rotation });
     }
+
     const dpr = global.devicePixelRatio || 1;
     const c = state.refs.canvas, stage = state.refs.stage;
     c.width = Math.floor(vp.width*dpr); c.height = Math.floor(vp.height*dpr);
@@ -161,7 +161,7 @@
     state.renderTask = page.render({ canvasContext: state.ctx, viewport: vp, transform:[dpr,0,0,dpr,0,0] });
     try{ await state.renderTask.promise; }catch(e){ if(e?.name!=="RenderingCancelledException") throw e; }
 
-    // Zoom表示更新
+    // Zoom表示
     if (state.refs.zdisp) state.refs.zdisp.textContent = `Zoom: ${(state.zoom*100).toFixed(0)}%`;
 
     if(state.refs.pageNum) state.refs.pageNum.textContent=String(state.page);
@@ -215,11 +215,11 @@
     on(R.next, ()=>{ if(state.pdf && state.page<state.pdf.numPages){ state.page++; renderPage(state);} });
     on(R.zin,  ()=>{ state.zoom=Math.min(state.zoom+0.2,6); renderPage(state); });
     on(R.zout, ()=>{ state.zoom=Math.max(state.zoom-0.2,0.2); renderPage(state); });
-    on(R.fit,  ()=> renderPage(state,{fitWidth:true}));
+    on(R.fit,  ()=> renderPage(state,{fitWidth:true}));   // ← ボタンでのみ Fit Width
     on(R.rot,  ()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); });
     on(R.reload, ()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message)));
 
-    // ===== ピンチズーム（ctrl+スクロール & iOS gesture） =====
+    // ピンチズーム：ctrl+スクロール & iOS gesture
     R.viewer.addEventListener('wheel', (e)=>{
       if (e.ctrlKey) {
         e.preventDefault();
@@ -291,14 +291,16 @@
 
   /* ========= Public API ========= */
   const ExternalPdfViewer = {
-    setConfig, // ExternalPdfViewer.setConfig({ pdfjsUrl: "...", pdfjsWorkerUrl: "...", pdflibUrl: "..." })
+    setConfig,
     async mount(args){
       await ensurePdfJs(); await ensurePdfLib();
       const container = args.container; if(!container) throw new Error("container is required");
       const state = {
         root: container,
         layout: args.layout || "simple",
-        page: 1, zoom: (args.options?.zoom ?? 1.1), rotation: (args.options?.rotation ?? 0),
+        page: 1,
+        zoom: (args.options?.zoom ?? 1.0),   // デフォルト100%
+        rotation: (args.options?.rotation ?? 0),
         events: args.events||{},
         contentId: args.contentId || "sampleA",
         contentParams: args.contentParams || {},
@@ -315,7 +317,8 @@
         if(state.pdf && state.pdf.destroy) try{ state.pdf.destroy(); }catch(_e){}
         state.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
         state.page = 1;
-        await renderPage(state, { fitWidth: true });
+        // ★ 初回ロード：fitWidth しない
+        await renderPage(state);
       };
       await state.reloadContent();
 
@@ -335,7 +338,8 @@
             if(typeof patch.options.rotation==='number'){ state.rotation=patch.options.rotation; needRerender=true; }
           }
           if(needReload) return state.reloadContent();
-          if(needRerender) return renderPage(state,{fitWidth:true});
+          // ★ update の再描画：fitWidth しない
+          if(needRerender) return renderPage(state);
         },
         destroy(){ 
           try{ state.renderTask && state.renderTask.cancel(); }catch(_e){}
