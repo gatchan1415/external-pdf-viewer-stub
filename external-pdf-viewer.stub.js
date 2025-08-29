@@ -1,3 +1,4 @@
+<script>
 (function (global) {
   /* ========= Utilities ========= */
   function loadScript(src){
@@ -136,6 +137,50 @@
     }
   };
 
+  /* ========= Smooth zoom helpers ========= */
+  function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
+
+  // アンカー点（指/カーソル位置）基準ズーム＋スクロール補正
+  async function zoomAt(state, newZoom, clientX, clientY){
+    const viewer = state.refs.viewer;
+    const oldZoom = state.zoom;
+    newZoom = clamp(newZoom, 0.2, 6);
+
+    const rect = viewer.getBoundingClientRect();
+    const ax = (clientX!=null ? clientX : rect.left + rect.width/2);
+    const ay = (clientY!=null ? clientY : rect.top  + rect.height/2);
+
+    const beforeX = (viewer.scrollLeft + (ax - rect.left));
+    const beforeY = (viewer.scrollTop  + (ay - rect.top));
+
+    state.zoom = newZoom;
+    await renderPage(state);
+
+    const scale = newZoom / oldZoom;
+    const afterX = beforeX * scale;
+    const afterY = beforeY * scale;
+
+    const targetScrollLeft = afterX - (ax - rect.left);
+    const targetScrollTop  = afterY - (ay - rect.top);
+
+    viewer.scrollLeft = targetScrollLeft;
+    viewer.scrollTop  = targetScrollTop;
+  }
+
+  // rAFでズームを間引き
+  function makeZoomScheduler(state){
+    let rafId = null;
+    let pending = null;
+    return (nextZoom, cx, cy)=>{
+      pending = { nextZoom, cx, cy };
+      if (rafId) return;
+      rafId = requestAnimationFrame(async ()=>{
+        const p = pending; pending = null; rafId = null;
+        await zoomAt(state, p.nextZoom, p.cx, p.cy);
+      });
+    };
+  }
+
   /* ========= Viewer rendering (pdf.js) ========= */
   async function renderPage(state, opts){
     if(!state.pdf) return;
@@ -161,7 +206,6 @@
     state.renderTask = page.render({ canvasContext: state.ctx, viewport: vp, transform:[dpr,0,0,dpr,0,0] });
     try{ await state.renderTask.promise; }catch(e){ if(e?.name!=="RenderingCancelledException") throw e; }
 
-    // Zoom表示
     if (state.refs.zdisp) state.refs.zdisp.textContent = `Zoom: ${(state.zoom*100).toFixed(0)}%`;
 
     if(state.refs.pageNum) state.refs.pageNum.textContent=String(state.page);
@@ -209,36 +253,92 @@
 
   function bindCommon(state){
     const R=state.refs;
-    const on = (el, fn)=> el && el.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); fn(); });
+    const on = (el, fn)=> el && el.addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); fn(e); });
 
     on(R.prev, ()=>{ if(state.page>1){ state.page--; renderPage(state);} });
     on(R.next, ()=>{ if(state.pdf && state.page<state.pdf.numPages){ state.page++; renderPage(state);} });
-    on(R.zin,  ()=>{ state.zoom=Math.min(state.zoom+0.2,6); renderPage(state); });
-    on(R.zout, ()=>{ state.zoom=Math.max(state.zoom-0.2,0.2); renderPage(state); });
-    on(R.fit,  ()=> renderPage(state,{fitWidth:true}));   // ← ボタンでのみ Fit Width
+    on(R.zin,  ()=>{ state.zoom = clamp(state.zoom * 1.1, 0.2, 6); renderPage(state); });
+    on(R.zout, ()=>{ state.zoom = clamp(state.zoom / 1.1, 0.2, 6); renderPage(state); });
+    on(R.fit,  ()=> renderPage(state,{fitWidth:true}));   // ボタンでのみ Fit Width
     on(R.rot,  ()=>{ state.rotation=(state.rotation+90)%360; renderPage(state); });
     on(R.reload, ()=> state.reloadContent().catch(e=>alert('Reload failed: '+e.message)));
 
-    // ピンチズーム：ctrl+スクロール & iOS gesture
+    // ======== Smooth pinch/zoom ========
+    const scheduleZoom = makeZoomScheduler(state);
+
+    // 1) ctrl+wheel（トラックパッドのピンチがこれになる環境が多い）
     R.viewer.addEventListener('wheel', (e)=>{
-      if (e.ctrlKey) {
-        e.preventDefault();
-        const delta = -e.deltaY;
-        if (delta > 0) state.zoom = Math.min(state.zoom * 1.1, 6);
-        else           state.zoom = Math.max(state.zoom / 1.1, 0.2);
-        renderPage(state);
-      }
+      if (!e.ctrlKey) return;   // 通常スクロールは通す
+      e.preventDefault();
+      // なめらか指数スケール
+      const factor = Math.pow(1.0025, -e.deltaY); // 1.001〜1.005で調整
+      const nextZoom = clamp(state.zoom * factor, 0.2, 6);
+      scheduleZoom(nextZoom, e.clientX, e.clientY);
     }, { passive:false });
 
-    let baseScale = null;
-    function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-    R.viewer.addEventListener('gesturestart', ()=>{ baseScale = state.zoom; });
-    R.viewer.addEventListener('gesturechange', (e)=>{
-      if (baseScale==null) return;
-      state.zoom = clamp(baseScale * e.scale, 0.2, 6);
-      renderPage(state);
+    // 2) iOS Safari の gesture（非標準）
+    let startZoom = null, gestureAnchor = null;
+    R.viewer.addEventListener('gesturestart', (e)=>{
+      startZoom = state.zoom;
+      gestureAnchor = { x: e.clientX, y: e.clientY };
     });
-    R.viewer.addEventListener('gestureend', ()=>{ baseScale=null; });
+    R.viewer.addEventListener('gesturechange', (e)=>{
+      if (startZoom==null) return;
+      const damped = 1 + (e.scale - 1) * 0.7; // 減衰 0.7（0.5〜0.9で調整）
+      const nextZoom = clamp(startZoom * damped, 0.2, 6);
+      scheduleZoom(nextZoom, gestureAnchor?.x, gestureAnchor?.y);
+    });
+    R.viewer.addEventListener('gestureend', ()=>{
+      startZoom=null; gestureAnchor=null;
+    });
+
+    // 3) Pointer Events で2本指ピンチ（Android/Win 等）
+    const active = new Map(); // pointerId -> {x,y}
+    let peStartZoom = null;
+    let peStartDist = null;
+    let peAnchor = null;
+
+    const onPointerDown = (e)=>{
+      if (e.pointerType === 'touch') {
+        active.set(e.pointerId, {x:e.clientX, y:e.clientY});
+        R.viewer.setPointerCapture(e.pointerId);
+        if (active.size === 2) {
+          const pts = Array.from(active.values());
+          peStartDist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+          peStartZoom = state.zoom;
+          peAnchor = { x: (pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
+        }
+      }
+    };
+    const onPointerMove = (e)=>{
+      if (!active.has(e.pointerId)) return;
+      if (e.pointerType === 'touch') {
+        active.set(e.pointerId, {x:e.clientX, y:e.clientY});
+        if (active.size === 2 && peStartDist && peStartZoom!=null) {
+          const pts = Array.from(active.values());
+          const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y) || 1;
+          const ratio = dist / peStartDist;
+          const damped = Math.pow(ratio, 0.85); // 0.8〜0.95で調整
+          const nextZoom = clamp(peStartZoom * damped, 0.2, 6);
+          scheduleZoom(nextZoom, peAnchor?.x, peAnchor?.y);
+          e.preventDefault();
+        }
+      }
+    };
+    const onPointerUpCancel = (e)=>{
+      if (active.has(e.pointerId)) {
+        active.delete(e.pointerId);
+        try{ R.viewer.releasePointerCapture(e.pointerId); }catch(_){}
+        if (active.size < 2) {
+          peStartDist = null; peStartZoom=null; peAnchor=null;
+        }
+      }
+    };
+
+    R.viewer.addEventListener('pointerdown', onPointerDown, {passive:false});
+    R.viewer.addEventListener('pointermove', onPointerMove, {passive:false});
+    R.viewer.addEventListener('pointerup', onPointerUpCancel);
+    R.viewer.addEventListener('pointercancel', onPointerUpCancel);
   }
 
   const toolbarHtml = `
@@ -317,7 +417,7 @@
         if(state.pdf && state.pdf.destroy) try{ state.pdf.destroy(); }catch(_e){}
         state.pdf = await pdfjsLib.getDocument({ data: bytes }).promise;
         state.page = 1;
-        // ★ 初回ロード：fitWidth しない
+        // 初回ロード：fitWidthしない（等倍or指定ズーム）
         await renderPage(state);
       };
       await state.reloadContent();
@@ -338,8 +438,7 @@
             if(typeof patch.options.rotation==='number'){ state.rotation=patch.options.rotation; needRerender=true; }
           }
           if(needReload) return state.reloadContent();
-          // ★ update の再描画：fitWidth しない
-          if(needRerender) return renderPage(state);
+          if(needRerender) return renderPage(state); // update時もfitWidthしない
         },
         destroy(){ 
           try{ state.renderTask && state.renderTask.cancel(); }catch(_e){}
@@ -353,3 +452,4 @@
   // UMD export
   global.ExternalPdfViewer = ExternalPdfViewer;
 })(window);
+</script>
